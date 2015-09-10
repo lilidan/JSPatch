@@ -66,7 +66,8 @@ var global = this
     return _formatOCToJS(ret)
   }
 
-  Object.defineProperty(Object.prototype, "__c", {value: function(methodName) {
+  //调用一个不存在方法时，能转发到一个指定函数去执行，就能解决一切问题了，这其实可以用简单的字符串替换，把JS脚本里的方法调用都替换掉。最后的解决方案是，在OC执行JS脚本前，通过正则把所有方法调用都改成调用 __c() 函数，再执行这个JS脚本，做到了类似OC/Lua/Ruby等的消息转发机制：
+    Object.defineProperty(Object.prototype, "__c", {value: function(methodName) {
     if (this instanceof Boolean) {
       return function() {
         return false
@@ -74,20 +75,24 @@ var global = this
     }
     
     if (!this.__obj && !this.__clsName) {
+       //如果没有obj和类名，则bind方法名到this
       return this[methodName].bind(this);
     }
 
     var self = this
     if (methodName == 'super') {
       return function() {
+        //如果是获取父类，则返回一个返回xx的闭包
         return {__obj: self.__obj, __clsName: self.__clsName, __isSuper: 1}
       }
     }
 
     if (methodName == 'performSelector') {
       return function(){
+        //如果是selector  则返回第一个参数为名字的方法
         var args = Array.prototype.slice.call(arguments)
         return _methodFunc(self.__obj, self.__clsName, args[0], args.splice(1), self.__isSuper, true)
+        //就是把相关信息传给OC，OC用 Runtime 接口调用相应方法，返回结果值，这个调用就结束了。
       }
     }
     return function(){
@@ -96,6 +101,9 @@ var global = this
     }
   }, configurable:false, enumerable: false})
 
+  
+  //调用 require(‘UIView’) 后，就可以直接使用 UIView 这个变量去调用相应的类方法了，require 做的事很简单，就是在JS全局作用域上创建一个同名变量，变量指向一个对象，对象属性__isCls表明这是一个 Class，__clsName保存类名，在调用方法时会用到这两个属性。
+  //所以调用require(‘UIView’)后，就在全局作用域生成了 UIView 这个变量，指向一个这样一个对象：
   var _require = function(clsName) {
     if (!global[clsName]) {
       global[clsName] = {
@@ -106,6 +114,7 @@ var global = this
     return global[clsName]
   }
 
+  
   global.require = function(clsNames) {
     var lastRequire
     clsNames.split(',').forEach(function(clsName) {
